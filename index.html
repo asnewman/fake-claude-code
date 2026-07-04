@@ -75,7 +75,10 @@
   button.b.add { width: 100%; margin-top: 4px; }
 
   /* preview window */
-  .window { flex: none; height: 78vh; min-height: 220px; max-height: 94vh; resize: vertical; background: var(--bg); border-radius: 8px; overflow: hidden; border: 1px solid #000; box-shadow: 0 10px 30px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+  .window { flex: none; height: 78vh; min-height: 220px; background: var(--bg); border-radius: 8px; overflow: hidden; border: 1px solid #000; box-shadow: 0 10px 30px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+  .resizer { flex: none; height: 14px; cursor: ns-resize; background: #262523; border-top: 1px solid #000; display: flex; align-items: center; justify-content: center; }
+  .resizer::before { content: ""; width: 36px; height: 3px; border-radius: 2px; background: var(--dimmer); }
+  .resizer:hover::before { background: var(--dim); }
   .titlebar { flex: none; display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: #262523; border-bottom: 1px solid #000; }
   .titlebar .dot { width: 11px; height: 11px; border-radius: 50%; }
   .titlebar .dot.r { background: #ec6a5e; } .titlebar .dot.y { background: #f4bf4f; } .titlebar .dot.g { background: #61c454; }
@@ -124,6 +127,7 @@
         <span class="name">claude — session</span>
       </div>
       <main id="app"></main>
+      <div class="resizer" id="resizer" title="Drag to resize"></div>
     </div>
   </div>
 
@@ -372,6 +376,27 @@ async function play() {
 }
 document.getElementById("play").onclick = play;
 
+// ---- drag the handle to resize the preview window height ----
+(() => {
+  const resizer = document.getElementById("resizer");
+  const win = document.querySelector(".window");
+  resizer.onpointerdown = (e) => {
+    e.preventDefault();
+    const startY = e.clientY, startH = win.offsetHeight;
+    resizer.setPointerCapture(e.pointerId);
+    const onMove = (ev) => {
+      const h = Math.max(220, Math.min(window.innerHeight - 40, startH + ev.clientY - startY));
+      win.style.height = h + "px";
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
+})();
+
 // ---- download preview as PNG (native: DOM -> SVG foreignObject -> canvas) ----
 function downloadPng() {
   const win = document.querySelector(".window");
@@ -379,6 +404,7 @@ function downloadPng() {
   const w = win.offsetWidth;
   const h = win.querySelector(".titlebar").offsetHeight + app.scrollHeight; // full, un-clipped
   const clone = win.cloneNode(true);
+  clone.querySelector(".resizer")?.remove(); // don't bake the drag handle into the image
   clone.style.height = h + "px";
   // clone lives in a bare <div>, not <body>, so it won't inherit body's font — set it explicitly
   const bs = getComputedStyle(document.body);
