@@ -33,6 +33,7 @@
   .col > .label { color: var(--label); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0 2px 8px; }
   .labelrow { display: flex; justify-content: space-between; align-items: center; }
   .labelrow button { text-transform: none; letter-spacing: 0; }
+  .labelrow .btns { display: flex; gap: 8px; }
 
   /* form */
   #form {
@@ -74,12 +75,12 @@
   button.b.add { width: 100%; margin-top: 4px; }
 
   /* preview window */
-  .window { flex: 1; min-height: 0; background: var(--bg); border-radius: 8px; overflow: hidden; border: 1px solid #000; box-shadow: 0 10px 30px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+  .window { flex: none; height: 78vh; min-height: 220px; max-height: 94vh; resize: vertical; background: var(--bg); border-radius: 8px; overflow: hidden; border: 1px solid #000; box-shadow: 0 10px 30px rgba(0,0,0,.18); display: flex; flex-direction: column; }
   .titlebar { flex: none; display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: #262523; border-bottom: 1px solid #000; }
   .titlebar .dot { width: 11px; height: 11px; border-radius: 50%; }
   .titlebar .dot.r { background: #ec6a5e; } .titlebar .dot.y { background: #f4bf4f; } .titlebar .dot.g { background: #61c454; }
   .titlebar .name { color: var(--dim); font-size: 12px; margin-left: 6px; }
-  #app { flex: 1; overflow: auto; padding: 20px 18px; color: var(--fg); }
+  #app { flex: 1; min-height: 0; overflow: auto; padding: 20px 18px; color: var(--fg); display: flex; flex-direction: column; }
 
   .header { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 22px; }
   .header h1 { font-size: 17px; font-weight: 700; margin: 0 0 3px; }
@@ -98,10 +99,12 @@
   .tool .call .name { font-weight: 700; }
   .tool .call .arg { color: var(--dim); }
   .tool .out { color: var(--dim); border-left: 1px solid var(--rule); margin: 4px 0 0 5px; padding: 2px 0 2px 12px; white-space: pre-wrap; }
-  .footer { margin-top: 22px; }
+  .footer { margin-top: auto; }  /* pin input to the bottom — no empty "chin" when content is short */
   .spinner { color: var(--accent); }
   .footer hr { border: 0; border-top: 1px solid var(--rule); margin: 11px 0; }
   .hint { color: var(--dimmer); }
+  .promptline { color: var(--dimmer); }
+  .promptline .typed { color: var(--fg); white-space: pre-wrap; }
 
   @media (max-width: 760px) { body { grid-template-columns: 1fr; height: auto; } .window, #form { min-height: 340px; } }
 </style>
@@ -113,7 +116,8 @@
   </div>
   <div class="col">
     <div class="label labelrow"><span>Preview</span>
-      <button class="b" id="dl" type="button">Download PNG</button></div>
+      <span class="btns"><button class="b" id="play" type="button">▶ Play</button>
+      <button class="b" id="dl" type="button">Download PNG</button></span></div>
     <div class="window">
       <div class="titlebar">
         <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
@@ -260,46 +264,113 @@ function mascot() {
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="var(--accent)" shape-rendering="crispEdges">${rects}</svg>`;
 }
 
-function renderPreview() {
-  const s = session, app = document.getElementById("app");
-  app.innerHTML = "";
-  app.appendChild(el("div", "header",
-    `${mascot()}<div><h1>Claude Code</h1><div class="meta">${esc(s.model)} · ${esc(s.cwd)}</div></div>`));
-
-  for (const m of s.messages) {
-    if (m.role === "user") {
-      app.appendChild(el("div", "msg user",
-        `<span class="gutter">&rsaquo;</span><div class="bubble">${esc(m.text)}</div>`));
-      continue;
-    }
-    if (m.role === "status") {
-      app.appendChild(el("div", "msg status", `✳ ${esc(m.text)}`));
-      continue;
-    }
-    if (m.role === "assistant system") {
-      app.appendChild(el("div", "msg system", esc(m.text)));
-      continue;
-    }
-    if (m.role === "tool") {
-      const tool = el("div", "msg tool");
-      tool.appendChild(el("div", "call",
-        `<span class="dot">⏺</span> <span class="name">${esc(m.name)}</span><span class="arg">(${esc(m.arg)})</span>`));
-      if (m.out) tool.appendChild(el("div", "out", esc(m.out)));
-      app.appendChild(tool);
-      continue;
-    }
-    app.appendChild(el("div", "msg assistant",
-      `<span class="b">●</span><span class="txt">${esc(m.text)}</span>`));
-  }
-
-  const footer = el("div", "footer");
-  if (s.thinking) footer.appendChild(el("div", "spinner", `✳ ${esc(s.spinnerLabel)}…`));
-  footer.appendChild(el("hr"));
-  footer.appendChild(el("div", "hint", `&rsaquo; ${esc(s.hint)}`));
-  app.appendChild(footer);
-
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+function headerNode() {
+  return el("div", "header",
+    `${mascot()}<div><h1>Claude Code</h1><div class="meta">${esc(session.model)} · ${esc(session.cwd)}</div></div>`);
 }
+
+// one DOM node for a message — shared by static render and play mode
+function msgNode(m) {
+  if (m.role === "user")
+    return el("div", "msg user", `<span class="gutter">&rsaquo;</span><div class="bubble">${esc(m.text)}</div>`);
+  if (m.role === "status")
+    return el("div", "msg status", `✳ ${esc(m.text)}`);
+  if (m.role === "assistant system")
+    return el("div", "msg system", esc(m.text));
+  if (m.role === "tool") {
+    const tool = el("div", "msg tool");
+    tool.appendChild(el("div", "call",
+      `<span class="dot">⏺</span> <span class="name">${esc(m.name)}</span><span class="arg">(${esc(m.arg)})</span>`));
+    if (m.out) tool.appendChild(el("div", "out", esc(m.out)));
+    return tool;
+  }
+  return el("div", "msg assistant", `<span class="b">●</span><span class="txt">${esc(m.text)}</span>`);
+}
+
+function footerNode() {
+  const footer = el("div", "footer");
+  if (session.thinking) footer.appendChild(el("div", "spinner", `✳ ${esc(session.spinnerLabel)}…`));
+  footer.appendChild(el("hr"));
+  footer.appendChild(el("div", "hint", `&rsaquo; ${esc(session.hint)}`));
+  return footer;
+}
+
+function renderPreview() {
+  playToken++; // any static re-render cancels an in-progress animation
+  setPlayLabel(false);
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  app.appendChild(headerNode());
+  for (const m of session.messages) app.appendChild(msgNode(m));
+  app.appendChild(footerNode());
+  try { localStorage.setItem(KEY, JSON.stringify(session)); } catch (e) {}
+}
+
+// ================= play (animate the session) =================
+let playToken = 0;
+const TYPE_MS = 28, THINK_MS = 700, STEP_MS = 350;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const alive = (my) => my === playToken;
+function setPlayLabel(playing) { document.getElementById("play").textContent = playing ? "⏹ Stop" : "▶ Play"; }
+
+async function typeInto(node, text, my) {
+  const app = document.getElementById("app");
+  for (let i = 0; i < text.length; i++) {
+    if (!alive(my)) return;
+    node.textContent = text.slice(0, i + 1);
+    app.scrollTop = app.scrollHeight;
+    await sleep(TYPE_MS);
+  }
+}
+
+async function play() {
+  if (document.getElementById("play").textContent.startsWith("⏹")) { renderPreview(); return; } // Stop
+  const my = ++playToken;
+  setPlayLabel(true);
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  app.appendChild(headerNode());
+
+  // persistent input line pinned at the bottom — messages insert above it
+  const input = el("div", "footer",
+    `<hr><div class="promptline"><span class="chev">&rsaquo;</span> <span class="typed"></span><span class="ph">${esc(session.hint)}</span></div>`);
+  app.appendChild(input);
+  const typed = input.querySelector(".typed"), ph = input.querySelector(".ph");
+  const scroll = () => { app.scrollTop = app.scrollHeight; };
+  const add = (node) => { app.insertBefore(node, input); scroll(); };
+
+  const spinnerNode = () => el("div", "spinner", `✳ ${esc(session.spinnerLabel)}…`);
+  const think = async () => {
+    const sp = spinnerNode();
+    input.insertBefore(sp, input.firstChild); scroll(); // above the input's hr, pinned at bottom
+    await sleep(THINK_MS);
+    sp.remove();
+  };
+
+  let prevRole = null;
+  for (const m of session.messages) {
+    if (!alive(my)) return;
+    if (m.role === "user") {
+      ph.style.display = "none";                 // type into the input box…
+      await typeInto(typed, m.text || "", my);
+      if (!alive(my)) return;
+      await sleep(STEP_MS);
+      if (!alive(my)) return;
+      add(msgNode(m));                            // …then "send" → appears in the transcript
+      typed.textContent = ""; ph.style.display = "";
+    } else {
+      if (prevRole === "user" || m.role === "tool") { await think(); if (!alive(my)) return; }
+      add(msgNode(m));
+      await sleep(STEP_MS);
+    }
+    prevRole = m.role;
+  }
+  if (!alive(my)) return;
+  if (session.thinking) input.insertBefore(spinnerNode(), input.firstChild);
+  scroll();
+  setPlayLabel(false);
+}
+document.getElementById("play").onclick = play;
 
 // ---- download preview as PNG (native: DOM -> SVG foreignObject -> canvas) ----
 function downloadPng() {
